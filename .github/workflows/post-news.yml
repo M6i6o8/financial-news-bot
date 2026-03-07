@@ -2,9 +2,7 @@ name: Financial News Bot
 
 on:
   schedule:
-    - cron: "0 9 * * *"   # 9:00 утра
-    - cron: "0 14 * * *"  # 14:00 дня
-    - cron: "0 18 * * *"  # 18:00 вечера
+    - cron: "0 12 * * *"   # 12:00 дня
   workflow_dispatch:
 
 jobs:

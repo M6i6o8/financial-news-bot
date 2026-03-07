@@ -311,14 +311,14 @@ async def on_startup():
         scheduler.add_job(
             publish_news,
             'cron', 
-            hour=15, 
+            hour=12, 
             minute=0,
             id='daily_news',
             replace_existing=True
         )
         
         scheduler.start()
-        print('⏰ Расписание установлено: 15:00 ежедневно')
+        print('⏰ Расписание установлено: 12:00 ежедневно')
         print("✅ Бот готов к работе в фоновом режиме")
     else:
         print("⚡ GitHub Actions режим: расписание не требуется")
