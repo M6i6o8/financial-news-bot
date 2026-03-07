@@ -1,4 +1,5 @@
-aiogram
-requests
-apscheduler
-python-dotenv 
+aiohttp>=3.9.0
+aiogram>=3.4.0
+apscheduler>=3.10.0
+feedparser>=6.0.0
+python-dotenv>=1.0.0
