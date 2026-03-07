@@ -1,4 +1,5 @@
 import os
+import sys
 import asyncio
 import aiohttp
 import feedparser
@@ -10,10 +11,23 @@ from dotenv import load_dotenv
 # Загружаем переменные окружения
 load_dotenv()
 
+# Проверяем, запущены ли мы в GitHub Actions
+IN_GITHUB_ACTIONS = os.getenv('GITHUB_ACTIONS') == 'true'
+print(f"🤖 Режим запуска: {'GitHub Actions' if IN_GITHUB_ACTIONS else 'Локальный'}")
+
 TELEGRAM_BOT_TOKEN = os.getenv('TELEGRAM_BOT_TOKEN')
 TELEGRAM_CHANNEL_ID = os.getenv('TELEGRAM_CHANNEL_ID')
 DEEPSEEK_API_KEY = os.getenv('DEEPSEEK_API_KEY')
 DEEPSEEK_MODEL = os.getenv('DEEPSEEK_MODEL', 'arcee-ai/trinity-large-preview:free')
+
+# Проверяем наличие токенов
+if not all([TELEGRAM_BOT_TOKEN, TELEGRAM_CHANNEL_ID, DEEPSEEK_API_KEY]):
+    print("❌ Ошибка: не все переменные окружения установлены!")
+    print(f"TELEGRAM_BOT_TOKEN: {'✅' if TELEGRAM_BOT_TOKEN else '❌'}")
+    print(f"TELEGRAM_CHANNEL_ID: {'✅' if TELEGRAM_CHANNEL_ID else '❌'}")
+    print(f"DEEPSEEK_API_KEY: {'✅' if DEEPSEEK_API_KEY else '❌'}")
+    if IN_GITHUB_ACTIONS:
+        sys.exit(1)
 
 bot = Bot(token=TELEGRAM_BOT_TOKEN)
 dp = Dispatcher()
@@ -233,13 +247,14 @@ async def publish_news():
     Основная функция с защитой от зависания — максимум 90 секунд на всё.
     """
     print('📰 publish_news() стартовал')
+    print(f'⏰ Время начала: {datetime.now().strftime("%H:%M:%S")}')
     
     try:
         # Общий таймаут 90 секунд на всю операцию
         await asyncio.wait_for(_publish_news_internal(), timeout=90)
+        print(f'✅ publish_news() завершен в {datetime.now().strftime("%H:%M:%S")}')
     except asyncio.TimeoutError:
         print('❌ publish_news() превысила лимит времени (90 сек) — принудительно завершено')
-        # Можно отправить уведомление админу, но пока просто логируем
     except Exception as e:
         print(f'❌ Непредвиденная ошибка в publish_news: {e}')
 
@@ -275,6 +290,8 @@ async def _publish_news_internal():
             print('✅ Пост отправлен без Markdown')
         except Exception as e2:
             print(f'❌ Ошибка при повторной отправке: {e2}')
+    
+    print(f'🏁 _publish_news_internal() завершена в {datetime.now().strftime("%H:%M:%S")}')
 
 # ============================================
 # ЗАПУСК И РАСПИСАНИЕ
@@ -285,35 +302,51 @@ async def on_startup():
     """
     print('🚀 Бот запускается...')
     
-    # Очищаем старые задачи (на всякий случай)
-    scheduler.remove_all_jobs()
-    
-    # Единственный выпуск в 15:00
-    scheduler.add_job(
-        publish_news,
-        'cron', 
-        hour=15, 
-        minute=0,
-        id='daily_news',
-        replace_existing=True
-    )
-    
-    scheduler.start()
-    print('⏰ Расписание установлено: 15:00 ежедневно')
-    
-    # Для теста можно запустить сразу (раскомментируй если нужно)
-    # await publish_news()
-    
-    print("✅ Бот готов к работе")
+    # Только для локального режима настраиваем расписание
+    if not IN_GITHUB_ACTIONS:
+        # Очищаем старые задачи
+        scheduler.remove_all_jobs()
+        
+        # Единственный выпуск в 15:00
+        scheduler.add_job(
+            publish_news,
+            'cron', 
+            hour=15, 
+            minute=0,
+            id='daily_news',
+            replace_existing=True
+        )
+        
+        scheduler.start()
+        print('⏰ Расписание установлено: 15:00 ежедневно')
+        print("✅ Бот готов к работе в фоновом режиме")
+    else:
+        print("⚡ GitHub Actions режим: расписание не требуется")
 
 # ============================================
 # ТОЧКА ВХОДА
 # ============================================
 async def main():
     await on_startup()
-    # Держим event loop живым, но не нагружаем
-    while True:
-        await asyncio.sleep(60)
+    
+    if IN_GITHUB_ACTIONS:
+        # В GitHub Actions: делаем дело и умираем
+        print("🤖 Запуск в GitHub Actions: публикуем новости и завершаемся")
+        await publish_news()
+        print("✅ Работа завершена, выходим")
+        # Даем время на отправку последних логов
+        await asyncio.sleep(2)
+    else:
+        # Локально: работаем как сервер с расписанием
+        print("💻 Локальный запуск: режим сервера с расписанием")
+        while True:
+            await asyncio.sleep(60)
 
 if __name__ == "__main__":
-    asyncio.run(main())
+    try:
+        asyncio.run(main())
+    except KeyboardInterrupt:
+        print("\n👋 Бот остановлен пользователем")
+    except Exception as e:
+        print(f"❌ Критическая ошибка: {e}")
+        sys.exit(1)
