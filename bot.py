@@ -208,7 +208,7 @@ async def generate_post(news_items):
     print('📤 Отправляю запрос к DeepSeek...')
     try:
         # Таймаут 30 секунд на весь запрос к DeepSeek
-        timeout = aiohttp.ClientTimeout(total=60)
+        timeout = aiohttp.ClientTimeout(total=90)
         async with aiohttp.ClientSession(timeout=timeout) as session:
             async with session.post(
                 "https://openrouter.ai/api/v1/chat/completions",
