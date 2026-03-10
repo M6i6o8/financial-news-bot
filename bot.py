@@ -307,18 +307,18 @@ async def on_startup():
         # Очищаем старые задачи
         scheduler.remove_all_jobs()
         
-        # Единственный выпуск в 15:00
+        # Единственный выпуск в 10:00
         scheduler.add_job(
             publish_news,
             'cron', 
-            hour=12, 
+            hour=10, 
             minute=0,
             id='daily_news',
             replace_existing=True
         )
         
         scheduler.start()
-        print('⏰ Расписание установлено: 12:00 ежедневно')
+        print('⏰ Расписание установлено: 10:00 ежедневно')
         print("✅ Бот готов к работе в фоновом режиме")
     else:
         print("⚡ GitHub Actions режим: расписание не требуется")
