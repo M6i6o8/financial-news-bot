@@ -160,7 +160,7 @@ async def fetch_news():
     return unique_news[:10]
 
 # ============================================
-# ГЕНЕРАЦИЯ ПОСТА ЧЕРЕЗ DEEPSEEK (С ТАЙМАУТОМ)
+# ГЕНЕРАЦИЯ ПОСТА ЧЕРЕЗ DEEPSEEK (С ТАЙМАУТОМ 90 СЕК)
 # ============================================
 async def generate_post(news_items):
     """
@@ -184,7 +184,9 @@ async def generate_post(news_items):
         "2. Используй эмодзи (🏦, 📊, 🏠, 💰, 📈)\n"
         "3. Если есть конкретные цифры — обязательно их выдели\n"
         "4. В конце добавь 3-5 хэштегов по теме\n"
-        "5. НИКАКИХ вариантов, комментариев или альтернатив — только один готовый пост\n\n"
+        "5. НИКАКИХ вариантов, комментариев или альтернатив — только один готовый пост\n"
+        "6. СЕЙЧАС 2026 ГОД. НИКОГДА НЕ ИСПОЛЬЗУЙ 2024, 2025 ИЛИ ЛЮБОЙ ДРУГОЙ ГОД, КРОМЕ 2026.\n"
+        "7. Если в новостях нет информации о годе — не выдумывай, просто пиши без года.\n\n"
         "НОВОСТИ ДЛЯ АНАЛИЗА:\n" + news_text
     )
     
@@ -207,7 +209,7 @@ async def generate_post(news_items):
     
     print('📤 Отправляю запрос к DeepSeek...')
     try:
-        # Таймаут 30 секунд на весь запрос к DeepSeek
+        # Таймаут 90 секунд на весь запрос к DeepSeek (УВЕЛИЧЕНО!)
         timeout = aiohttp.ClientTimeout(total=90)
         async with aiohttp.ClientSession(timeout=timeout) as session:
             async with session.post(
@@ -233,7 +235,7 @@ async def generate_post(news_items):
                     print(f'❌ Ошибка DeepSeek: {response.status} - {text}')
                     return None
     except asyncio.TimeoutError:
-        print('❌ Таймаут при запросе к DeepSeek (30 сек)')
+        print('❌ Таймаут при запросе к DeepSeek (90 сек)')
         return None
     except Exception as e:
         print(f'❌ Ошибка при запросе к DeepSeek: {e}')
@@ -244,17 +246,17 @@ async def generate_post(news_items):
 # ============================================
 async def publish_news():
     """
-    Основная функция с защитой от зависания — максимум 90 секунд на всё.
+    Основная функция с защитой от зависания — максимум 120 секунд на всё.
     """
     print('📰 publish_news() стартовал')
     print(f'⏰ Время начала: {datetime.now().strftime("%H:%M:%S")}')
     
     try:
-        # Общий таймаут 90 секунд на всю операцию
-        await asyncio.wait_for(_publish_news_internal(), timeout=90)
+        # Общий таймаут 120 секунд на всю операцию
+        await asyncio.wait_for(_publish_news_internal(), timeout=120)
         print(f'✅ publish_news() завершен в {datetime.now().strftime("%H:%M:%S")}')
     except asyncio.TimeoutError:
-        print('❌ publish_news() превысила лимит времени (90 сек) — принудительно завершено')
+        print('❌ publish_news() превысила лимит времени (120 сек) — принудительно завершено')
     except Exception as e:
         print(f'❌ Непредвиденная ошибка в publish_news: {e}')
 
@@ -294,7 +296,7 @@ async def _publish_news_internal():
     print(f'🏁 _publish_news_internal() завершена в {datetime.now().strftime("%H:%M:%S")}')
 
 # ============================================
-# ЗАПУСК И РАСПИСАНИЕ
+# ЗАПУСК И РАСПИСАНИЕ (10:00)
 # ============================================
 async def on_startup():
     """

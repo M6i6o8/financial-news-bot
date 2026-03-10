@@ -2,12 +2,13 @@ name: Financial News Bot
 
 on:
   schedule:
-    - cron: "0 10 * * *"   # 10:00 дня
+    - cron: "0 10 * * *"   # 10:00 утра
   workflow_dispatch:
 
 jobs:
   post-news:
     runs-on: ubuntu-latest
+    timeout-minutes: 3
 
     steps:
       - name: Checkout repository
