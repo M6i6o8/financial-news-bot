@@ -108,11 +108,12 @@ RSS_FEEDS = [
 ]
 
 # ============================================
-# ФУНКЦИЯ СБОРА НОВОСТЕЙ ИЗ RSS (С ТАЙМАУТАМИ)
+# ФУНКЦИЯ СБОРА НОВОСТЕЙ ИЗ RSS (С ТАЙМАУТАМИ И КОДИРОВКОЙ)
 # ============================================
 async def fetch_news():
     """
-    Парсит RSS-ленты, фильтрует по ключевым словам,
+    Парсит RSS-ленты с обработкой разных кодировок,
+    фильтрует по ключевым словам,
     возвращает список словарей с заголовком, ссылкой и датой.
     """
     print('🔍 fetch_news() стартовал')
@@ -125,14 +126,36 @@ async def fetch_news():
                 headers = {
                     'User-Agent': 'Mozilla/5.0 (Windows NT 10.0; Win64; x64) AppleWebKit/537.36'
                 }
+                
                 # Таймаут 10 секунд на каждый RSS
                 async with session.get(feed_url, headers=headers, timeout=aiohttp.ClientTimeout(total=10)) as resp:
-                    text = await resp.text()
+                    # Сначала читаем как байты
+                    raw_bytes = await resp.read()
+                    
+                    # Пробуем разные кодировки
+                    text = None
+                    encodings_to_try = ['utf-8', 'windows-1251', 'koi8-r', 'iso-8859-5']
+                    
+                    for encoding in encodings_to_try:
+                        try:
+                            text = raw_bytes.decode(encoding, errors='ignore')
+                            print(f'  ✅ Успешно декодировано в {encoding}')
+                            break
+                        except:
+                            continue
+                    
+                    if text is None:
+                        # Если ничего не подошло — пробуем с ignore
+                        text = raw_bytes.decode('utf-8', errors='ignore')
+                        print('  ⚠️ Декодировано с игнорированием ошибок')
+                    
                     feed = feedparser.parse(text)
                     
                     if feed.entries:
+                        print(f'  📰 Получено {len(feed.entries)} записей')
                         for entry in feed.entries[:15]:
                             title = entry.get('title', '')
+                            # Проверяем по ключевым словам
                             if any(kw.lower() in title.lower() for kw in NEWS_KEYWORDS):
                                 news_item = {
                                     'title': title,
@@ -141,14 +164,17 @@ async def fetch_news():
                                     'source': feed_url.split('/')[2] if '//' in feed_url else feed_url
                                 }
                                 found_news.append(news_item)
-                                print(f'✅ Найдено: {title[:70]}...')
+                                print(f'  ✅ Найдено: {title[:70]}...')
+                    else:
+                        print(f'  ⚠️ Нет записей в RSS')
+                        
             except asyncio.TimeoutError:
                 print(f'⏰ Таймаут при парсинге {feed_url} (10 сек)')
             except Exception as e:
                 print(f'❌ Ошибка при парсинге {feed_url}: {str(e)[:100]}')
                 continue
     
-    # Убираем дубликаты
+    # Убираем дубликаты по заголовкам
     unique_news = []
     seen_titles = set()
     for item in found_news:
@@ -209,7 +235,7 @@ async def generate_post(news_items):
     
     print('📤 Отправляю запрос к DeepSeek...')
     try:
-        # Таймаут 90 секунд на весь запрос к DeepSeek (УВЕЛИЧЕНО!)
+        # Таймаут 90 секунд на весь запрос к DeepSeek
         timeout = aiohttp.ClientTimeout(total=90)
         async with aiohttp.ClientSession(timeout=timeout) as session:
             async with session.post(
