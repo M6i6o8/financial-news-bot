@@ -8,6 +8,14 @@ from aiogram import Bot, Dispatcher
 from apscheduler.schedulers.asyncio import AsyncIOScheduler
 from dotenv import load_dotenv
 
+# Поддержка Brotli для сайтов с этим типом сжатия
+try:
+    import brotli
+    HAS_BROTLI = True
+except ImportError:
+    HAS_BROTLI = False
+    print("⚠️ Brotli не установлен, некоторые RSS могут не парситься")
+
 # Загружаем переменные окружения
 load_dotenv()
 
@@ -87,7 +95,7 @@ RSS_FEEDS = [
     'https://www.kommersant.ru/RSS/news-economics.xml',
     # Ведомости
     'https://vedomosti.ru/rss/articles',
-    # News.ru - главная
+    # News.ru - главная (использует brotli)
     'https://news.ru/rss/',
     # News.ru - экономика
     'https://news.ru/rss/economics/',
@@ -108,23 +116,25 @@ RSS_FEEDS = [
 ]
 
 # ============================================
-# ФУНКЦИЯ СБОРА НОВОСТЕЙ ИЗ RSS (С ТАЙМАУТАМИ И КОДИРОВКОЙ)
+# ФУНКЦИЯ СБОРА НОВОСТЕЙ ИЗ RSS
 # ============================================
 async def fetch_news():
     """
-    Парсит RSS-ленты с обработкой разных кодировок,
+    Парсит RSS-ленты с обработкой разных кодировок и сжатия,
     фильтрует по ключевым словам,
     возвращает список словарей с заголовком, ссылкой и датой.
     """
     print('🔍 fetch_news() стартовал')
     found_news = []
+    all_news = []  # для fallback
     
     async with aiohttp.ClientSession() as session:
         for feed_url in RSS_FEEDS:
             try:
                 print(f'📡 Парсинг {feed_url}...')
                 headers = {
-                    'User-Agent': 'Mozilla/5.0 (Windows NT 10.0; Win64; x64) AppleWebKit/537.36'
+                    'User-Agent': 'Mozilla/5.0 (Windows NT 10.0; Win64; x64) AppleWebKit/537.36',
+                    'Accept-Encoding': 'gzip, deflate, br'  # поддерживаем brotli
                 }
                 
                 # Таймаут 10 секунд на каждый RSS
@@ -153,8 +163,16 @@ async def fetch_news():
                     
                     if feed.entries:
                         print(f'  📰 Получено {len(feed.entries)} записей')
-                        for entry in feed.entries[:15]:
+                        for entry in feed.entries[:20]:  # берем до 20 записей
                             title = entry.get('title', '')
+                            # Сохраняем все новости для fallback
+                            all_news.append({
+                                'title': title,
+                                'link': entry.get('link', ''),
+                                'published': entry.get('published', entry.get('pubDate', '')),
+                                'source': feed_url.split('/')[2] if '//' in feed_url else feed_url
+                            })
+                            
                             # Проверяем по ключевым словам
                             if any(kw.lower() in title.lower() for kw in NEWS_KEYWORDS):
                                 news_item = {
@@ -164,7 +182,7 @@ async def fetch_news():
                                     'source': feed_url.split('/')[2] if '//' in feed_url else feed_url
                                 }
                                 found_news.append(news_item)
-                                print(f'  ✅ Найдено: {title[:70]}...')
+                                print(f'  ✅ Найдено по ключевым словам: {title[:70]}...')
                     else:
                         print(f'  ⚠️ Нет записей в RSS')
                         
@@ -182,8 +200,47 @@ async def fetch_news():
             seen_titles.add(item['title'])
             unique_news.append(item)
     
-    print(f'📊 Всего уникальных новостей: {len(unique_news)}')
-    return unique_news[:10]
+    print(f'📊 Всего уникальных новостей по ключевым словам: {len(unique_news)}')
+    
+    # FALLBACK: если нет новостей по ключевым словам, берем общие
+    if not unique_news and all_news:
+        print("⚠️ Новостей по ключевым словам нет, но есть общие новости — берем первые 5")
+        # Убираем дубликаты из общих новостей
+        seen_general = set()
+        general_unique = []
+        for item in all_news[:50]:  # берем первые 50 для разнообразия
+            if item['title'] not in seen_general:
+                seen_general.add(item['title'])
+                general_unique.append(item)
+        unique_news = general_unique[:5]
+    
+    # САМЫЙ КРАЙНИЙ FALLBACK: если совсем ничего нет
+    if not unique_news:
+        print("⚠️ Совсем нет новостей — используем заглушку с сегодняшней датой")
+        today = datetime.now().strftime("%d.%m.%Y")
+        current_year = datetime.now().year
+        unique_news = [
+            {
+                'title': f'🏦 Ключевая ставка ЦБ РФ: новости рынка на {today}',
+                'link': 'https://cbr.ru',
+                'published': today,
+                'source': 'ЦБ РФ'
+            },
+            {
+                'title': f'🏠 Ипотечные ставки в российских банках: обзор на {today}',
+                'link': 'https://banki.ru',
+                'published': today,
+                'source': 'Banki.ru'
+            },
+            {
+                'title': f'📊 Аналитики ожидают решения по ключевой ставке {current_year}',
+                'link': 'https://frankmedia.ru',
+                'published': today,
+                'source': 'Frank Media'
+            }
+        ]
+    
+    return unique_news[:7]  # максимум 7 новостей
 
 # ============================================
 # ГЕНЕРАЦИЯ ПОСТА ЧЕРЕЗ DEEPSEEK (С ТАЙМАУТОМ 90 СЕК)
@@ -202,6 +259,8 @@ async def generate_post(news_items):
         if item.get('link'):
             news_text += f"   🔗 {item['link']}\n"
     
+    current_year = datetime.now().year
+    
     prompt = (
         "Ты — аналитик финансового Telegram-канала. Напиши ЕДИНСТВЕННУЮ итоговую сводку новостей "
         "по ключевой ставке и ипотеке в России на основе предоставленных материалов.\n\n"
@@ -211,7 +270,7 @@ async def generate_post(news_items):
         "3. Если есть конкретные цифры — обязательно их выдели\n"
         "4. В конце добавь 3-5 хэштегов по теме\n"
         "5. НИКАКИХ вариантов, комментариев или альтернатив — только один готовый пост\n"
-        "6. СЕЙЧАС 2026 ГОД. НИКОГДА НЕ ИСПОЛЬЗУЙ 2024, 2025 ИЛИ ЛЮБОЙ ДРУГОЙ ГОД, КРОМЕ 2026.\n"
+        f"6. СЕЙЧАС {current_year} ГОД. НИКОГДА НЕ ИСПОЛЬЗУЙ 2024, 2025 ИЛИ ЛЮБОЙ ДРУГОЙ ГОД, КРОМЕ {current_year}.\n"
         "7. Если в новостях нет информации о годе — не выдумывай, просто пиши без года.\n\n"
         "НОВОСТИ ДЛЯ АНАЛИЗА:\n" + news_text
     )
@@ -268,7 +327,7 @@ async def generate_post(news_items):
         return None
 
 # ============================================
-# ПУБЛИКАЦИЯ НОВОСТЕЙ (С ОБЩИМ ТАЙМАУТОМ)
+# ПУБЛИКАЦИЯ НОВОСТЕЙ
 # ============================================
 async def publish_news():
     """
@@ -287,7 +346,7 @@ async def publish_news():
         print(f'❌ Непредвиденная ошибка в publish_news: {e}')
 
 async def _publish_news_internal():
-    """Внутренняя логика publish_news (выполняется с таймаутом)"""
+    """Внутренняя логика publish_news"""
     
     # Собираем новости
     news_items = await fetch_news()
